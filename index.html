@@ -1,68 +1,157 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-
 <head>
 <meta charset="UTF-8">
-<title>Video → MP3</title>
+<title>استخراج الصوت من فيديو إلى MP3</title>
 <style>
-body{
-    font-family:sans-serif;
-    max-width:500px;
-    margin:40px auto;
-}
+    body{
+        font-family: system-ui, sans-serif;
+        background:#f5f5f5;
+        min-height:100vh;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+    }
+    .card{
+        background:#fff;
+        padding:20px;
+        border-radius:12px;
+        box-shadow:0 4px 12px rgba(0,0,0,0.08);
+        width:100%;
+        max-width:420px;
+    }
+    h2{
+        margin-top:0;
+        margin-bottom:10px;
+        font-size:20px;
+    }
+    p{
+        margin:4px 0;
+        font-size:14px;
+    }
+    input[type="file"]{
+        margin:10px 0;
+        width:100%;
+    }
+    button{
+        padding:10px 15px;
+        border:none;
+        border-radius:8px;
+        font-size:15px;
+        cursor:pointer;
+        width:100%;
+    }
+    #convertBtn{
+        background:#007bff;
+        color:#fff;
+    }
+    #convertBtn:disabled{
+        opacity:0.6;
+        cursor:not-allowed;
+    }
+    #status{
+        margin-top:10px;
+        font-size:13px;
+        min-height:18px;
+    }
 </style>
 </head>
-
 <body>
 
-<h2>استخراج الصوت من الفيديو</h2>
-<input type="file" id="inputVideo" accept="video/*">
-<button id="convertBtn">تحويل</button>
-<div id="status"></div>
+<div class="card">
+    <h2>استخراج الصوت من فيديو 🎧</h2>
+    <p>اختار فيديو من جهازك، وهنطلّع لك منه ملف MP3 جاهز للتحميل.</p>
 
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
+    <input type="file" id="inputVideo" accept="video/*">
+    <button id="convertBtn">تحويل إلى MP3</button>
+    <div id="status"></div>
+</div>
+
+<!-- تحميل ffmpeg.min.js من CDN -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
 <script>
-const { createFFmpeg, fetchFile } = FFmpeg;
-const ffmpeg = createFFmpeg({
-    log: true,
-    corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js"
-});
+    // نتأكد إن السكربت اتحمل
+    if (typeof FFmpeg === "undefined") {
+        alert("في مشكلة في تحميل مكتبة ffmpeg من الإنترنت. جرب افتح الصفحة تاني أو تأكد إن في إنترنت.");
+    }
 
-const input = document.getElementById("inputVideo");
-const btn = document.getElementById("convertBtn");
-const statusEl = document.getElementById("status");
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({
+        log: true,
+        // مهم جداً: تحديد مسار الـ core
+        corePath: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
+    });
 
-function setStatus(t){ statusEl.textContent = t; }
+    const inputVideo = document.getElementById("inputVideo");
+    const convertBtn = document.getElementById("convertBtn");
+    const statusEl = document.getElementById("status");
 
-btn.onclick = async () => {
-  const file = input.files[0];
-  if(!file){
-    alert("اختر فيديو");
-    return;
-  }
+    function setStatus(msg) {
+        statusEl.textContent = msg;
+        console.log(msg);
+    }
 
-  btn.disabled = true;
-  setStatus("تجهيز المحول...");
+    convertBtn.onclick = async () => {
+        const file = inputVideo.files[0];
+        if (!file) {
+            alert("اختار فيديو الأول.");
+            return;
+        }
 
-  if(!ffmpeg.isLoaded()){
-    await ffmpeg.load();
-  }
+        convertBtn.disabled = true;
+        setStatus("جارِ التحضير...");
 
-  setStatus("جار التحويل...");
-  ffmpeg.FS("writeFile","input", await fetchFile(file));
-  await ffmpeg.run("-i","input","-vn","-acodec","libmp3lame","output.mp3");
+        try {
+            // تحميل ffmpeg أول مرة فقط
+            if (!ffmpeg.isLoaded()) {
+                setStatus("جارِ تحميل محرك التحويل (ffmpeg)... قد يستغرق ثوانٍ.");
+                await ffmpeg.load();
+            }
 
-  const data = ffmpeg.FS("readFile","output.mp3");
-  const url = URL.createObjectURL(new Blob([data.buffer],{type:"audio/mp3"}));
+            setStatus("جارِ قراءة الفيديو...");
+            const inputName = 'input_' + Date.now() + '_' + file.name;
+            const outputName = 'audio_' + Date.now() + '.mp3';
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = file.name.replace(/\.[^/.]+$/, "") + ".mp3";
-  a.click();
+            // نكتب ملف الفيديو في نظام ملفات ffmpeg الداخلي
+            ffmpeg.FS('writeFile', inputName, await fetchFile(file));
 
-  setStatus("تم التحويل ✔️");
-  btn.disabled = false;
-};
+            setStatus("جارِ التحويل إلى MP3... (قد يستغرق بعض الوقت حسب حجم الفيديو)");
+
+            // -vn عشان نحذف الفيديو ونخلي الصوت بس
+            await ffmpeg.run(
+                '-i', inputName,
+                '-vn',
+                '-acodec', 'libmp3lame',
+                '-q:a', '2',
+                outputName
+            );
+
+            setStatus("استخراج ملف الصوت...");
+
+            const data = ffmpeg.FS('readFile', outputName);
+            const blob = new Blob([data.buffer], { type: 'audio/mpeg' });
+            const url = URL.createObjectURL(blob);
+
+            // نعمل لينك داونلود ونضغطه أوتوماتيك
+            const a = document.createElement('a');
+            a.href = url;
+
+            // نخلي اسم الملف نفس اسم الفيديو بس .mp3
+            const baseName = (file.name || 'audio').replace(/\.[^/.]+$/, '');
+            a.download = baseName + '.mp3';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            setStatus("تم استخراج الصوت بنجاح ✅");
+        } catch (err) {
+            console.error(err);
+            alert("حصل خطأ أثناء التحويل. افتح Console في المتصفح وشوف الرسالة لو عايز تشخّص المشكلة.");
+            setStatus("حصل خطأ أثناء التحويل.");
+        } finally {
+            convertBtn.disabled = false;
+        }
+    };
 </script>
 
 </body>
